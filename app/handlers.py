@@ -59,52 +59,77 @@ async def register(message: Message, state: FSMContext):
 
 @router.message(Register.name)
 async def register_data(message: Message, state: FSMContext):
-
-    if validate_full_name(message.text):
-        await state.update_data(name=message.text.split(' ')[0])
-        await state.update_data(surname=message.text.split(' ')[1])
-        data = await state.get_data()
-        await rq.set_name(message.from_user.id, data["name"], data["surname"])
-        await message.answer('Регистрация прошла успешно', reply_markup=kb.main)
-        await state.clear()
-    else:
+    try:
+        message.text.split(' ')
+    except:
         await message.answer('Информация введена неверно', reply_markup=kb.main)
-        await state.clear()
+        # await state.clear()
+        return  
+    else:
+        if validate_full_name(message.text):
+            await state.update_data(name=message.text.split(' ')[0])
+            await state.update_data(surname=message.text.split(' ')[1])
+            data = await state.get_data()
+            await rq.set_name(message.from_user.id, data["name"], data["surname"])
+            await message.answer('Регистрация прошла успешно', reply_markup=kb.main)
+            await state.clear()
+        else:
+            await message.answer('Информация введена неверно', reply_markup=kb.main)
+            # await state.clear()
     
 
 @router.message(Command('enter_scores'))
 async def enter_scores(message: Message, state: FSMContext):
 
+    is_registered = await rq.is_user_registered(message.from_user.id)
+    if not is_registered:
+        await message.answer("Вы не зарегистрированы. Сначала введите имя и фамилию.", reply_markup=kb.main)
+        return
+
     get_scores = await rq.get_user_scores(message.from_user.id)
     if get_scores:
         await message.answer("Вы уже ввели результаты экзаменов.", reply_markup=kb.main)
         return
+    
     await state.set_state(EnterScore.item_name)
-    await message.answer('Введите название предмета и балл:\n\nПример:\nРусский язык: 90')
+    await message.answer('Введите название предмета и балл:\n\nПример:\n\nРусский язык: 90\nПрофильная математика: 100')
+
 
 @router.message(EnterScore.item_name)
 async def enter_score_data(message: Message, state: FSMContext):
-    message_from_user = message.text.split('\n')
-    scores = []  
-
-    for i in range(len(message_from_user)):
-        parts = message_from_user[i].split(': ')
-        if len(parts) == 2 and parts[0] in item_ege and parts[1].isdigit():
-            score = int(parts[1])
-            if 0 <= score <= 100:
-                scores.append((parts[0], score))
+    try:
+        message_from_user = message.text.split('\n')
+        scores = []  
+    except:
+        await message.answer('Информация введена неверно', reply_markup=kb.main)
+        await rq.delete_user_scores(message.from_user.id)
+        # await state.clear()
+        return  
+    else:
+        for i in range(len(message_from_user)):
+            parts = message_from_user[i].split(': ')
+            if len(parts) == 2 and parts[0] in item_ege and parts[1].isdigit():
+                score = int(parts[1])
+                if 0 <= score <= 100:
+                    scores.append((parts[0], score))
+                else:
+                    await message.answer('Баллы должны быть в диапазоне 0-100', reply_markup=kb.main)
+                    await rq.delete_user_scores(message.from_user.id)
+                    await state.clear()
+                    return
             else:
-                await message.answer('Баллы должны быть в диапазоне 0-100', reply_markup=kb.main)
+                await message.answer('Информация введена неверно', reply_markup=kb.main)
                 await rq.delete_user_scores(message.from_user.id)
-                return
+                # await state.clear()
+                return  
+        if len(scores) == len(set(scores)):
+            for item_name, score in scores:
+                await rq.set_score(message.from_user.id, item_name, score)
         else:
-            await message.answer('Информация введена неверно', reply_markup=kb.main)
-            await rq.delete_user_scores(message.from_user.id)
-            return  # Выходим из функции
-
-    for item_name, score in scores:
-        await rq.set_score(message.from_user.id, item_name, score)
-
+                await message.answer('Информация введена неверно', reply_markup=kb.main)
+                await rq.delete_user_scores(message.from_user.id)
+                # await state.clear()
+                return          
     await message.answer('Баллы успешно внесены', reply_markup=kb.main)
     await state.clear()
 
@@ -123,5 +148,38 @@ async def clear_database(message: Message):
     if message.from_user.id == int(config('ADMIN')):
         await rq.clear_database()
         await message.answer("База данных полностью очищена")
+    else:
+        await message.answer("У вас недостаточно прав")
+
+@router.message(Command('view_all_database'))
+async def view_database(message: Message):
+    if message.from_user.id == int(config('ADMIN')):
+        message_with_scores = await rq.get_all_students_scores()
+        if not message_with_scores:
+            await message.answer("Информация об учениках отсутствует", reply_markup=kb.main)
+            return
+        result = ""
+        people = {}
+
+        for first_name, last_name, subject, grade in message_with_scores:
+
+            name_key = (first_name, last_name)
+            if name_key not in people:
+                people[name_key] = []
+
+            if subject != None and grade != None:
+                people[name_key].append((subject, grade))
+            else:
+                people[name_key].append(('Ввод данных', 'ожидается'))
+
+
+        for (first_name, last_name), subjects in people.items():
+            result += f"{first_name} {last_name}:\n"
+            for subject, grade in subjects:
+                result += f"{subject}: {grade}\n"
+            result += "\n" 
+
+        await message.answer(result)
+
     else:
         await message.answer("У вас недостаточно прав")

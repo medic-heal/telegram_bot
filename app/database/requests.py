@@ -32,6 +32,12 @@ async def get_user_scores(tg_id: int):
         result = await session.execute(select(Score.item_name, Score.score).where(Score.user_id == tg_id))
         scores = result.all()
         return scores if scores else None
+
+async def is_user_registered(tg_id: int):
+    async with async_session() as session:
+        result = await session.scalar(select(Name).where(Name.user_id == tg_id))
+        return result is not None
+
     
 async def get_user_register(tg_id: int):
     async with async_session() as session:
@@ -50,3 +56,12 @@ async def clear_database():
         await session.execute(delete(Name))
         await session.execute(delete(User))
         await session.commit()
+
+async def get_all_students_scores():
+    async with async_session() as session:
+        result = await session.execute(
+            select(Name.name, Name.surname, Score.item_name, Score.score)
+            .join(Score, Name.user_id == Score.user_id, isouter=True)
+        )
+        scores = result.all()
+        return scores if scores else []
