@@ -9,21 +9,27 @@ import app.database.requests as rq
 
 from decouple import config
 
+# Список всех возможных предметов ЕГЭ
 item_ege = ['Базовая математика', 'Профильная математика', 'Физика', 'Химия', 'История', 'Обществознание', 'Информатика', 'Биология', 'География', 'Английский язык', 'Немецкий язык', 'Французский язык', 'Испанский язык', 'Китайский язык', 'Русский язык', 'Литература']
 
+# Инициализация роутера
 router = Router()
 
+# Состояния для FSM-регистрации
 class Register(StatesGroup):
     name = State() 
     surname = State()
 
+# Состояния для ввода результатов ЕГЭ
 class EnterScore(StatesGroup):
     score = State()
     item_name = State()
 
+# Проверка наличия цифр в строке
 def contains_digit(s):
     return any(char.isdigit() for char in s)
 
+# Валидация ФИО (должны быть только две части, заглавные буквы, только буквы)
 def validate_full_name(name):
     try:
         parts = name.split()
@@ -39,13 +45,14 @@ def validate_full_name(name):
         print(f"Ошибка: {e}")
         return False
 
+# Обработчик команды /start: регистрация пользователя и вывод главного меню
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     await rq.set_user(message.from_user.id)
     await message.answer('Привет! Выберите действие:\n\n /register - регистрация\n/enter_scores - ввод баллов ЕГЭ\n/view_scores - просмотреть введёные баллы ЕГЭ',
                          reply_markup=kb.main)
 
-
+# Обработчик команды /register — начало регистрации пользователя
 @router.message(Command('register'))
 async def register(message: Message, state: FSMContext):
 
@@ -57,6 +64,7 @@ async def register(message: Message, state: FSMContext):
         await state.set_state(Register.name)
         await message.answer('Введите имя и фамилию через пробел\n\nПример:\nМария Иванова')
 
+# Обработка введённого имени и фамилии
 @router.message(Register.name)
 async def register_data(message: Message, state: FSMContext):
     try:
@@ -77,7 +85,7 @@ async def register_data(message: Message, state: FSMContext):
             await message.answer('Информация введена неверно', reply_markup=kb.main)
             # await state.clear()
     
-
+# Обработчик команды /enter_scores — начало ввода результатов экзаменов
 @router.message(Command('enter_scores'))
 async def enter_scores(message: Message, state: FSMContext):
 
@@ -94,7 +102,7 @@ async def enter_scores(message: Message, state: FSMContext):
     await state.set_state(EnterScore.item_name)
     await message.answer('Введите название предмета и балл:\n\nПример:\n\nРусский язык: 90\nПрофильная математика: 100')
 
-
+# Обработка введённых предметов и баллов
 @router.message(EnterScore.item_name)
 async def enter_score_data(message: Message, state: FSMContext):
     try:
@@ -133,6 +141,7 @@ async def enter_score_data(message: Message, state: FSMContext):
     await message.answer('Баллы успешно внесены', reply_markup=kb.main)
     await state.clear()
 
+# Обработчик команды /view_scores — вывод результатов текущего пользователя
 @router.message(Command('view_scores'))
 async def view_scores(message: Message):
     message_with_scores = await rq.get_user_scores(message.from_user.id)
@@ -143,6 +152,7 @@ async def view_scores(message: Message):
     message_for_send = '\n'.join(f"{item_name}: {score}" for item_name, score in message_with_scores)
     await message.answer(message_for_send)
 
+# Админ-команда /clear_all_database — очистка всей базы данных
 @router.message(Command('clear_all_database'))
 async def clear_database(message: Message):
     if message.from_user.id == int(config('ADMIN')):
@@ -151,6 +161,7 @@ async def clear_database(message: Message):
     else:
         await message.answer("У вас недостаточно прав")
 
+# Админ-команда /view_all_database — просмотр всех данных по ученикам
 @router.message(Command('view_all_database'))
 async def view_database(message: Message):
     if message.from_user.id == int(config('ADMIN')):
@@ -172,14 +183,12 @@ async def view_database(message: Message):
             else:
                 people[name_key].append(('Ввод данных', 'ожидается'))
 
-
         for (first_name, last_name), subjects in people.items():
             result += f"{first_name} {last_name}:\n"
             for subject, grade in subjects:
                 result += f"{subject}: {grade}\n"
             result += "\n" 
-
         await message.answer(result)
-
+        
     else:
         await message.answer("У вас недостаточно прав")
